@@ -1,0 +1,229 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<title>Clock - Customized News & Date</title>
+<style>
+  body {
+    margin: 0;
+    padding: 0;
+    background-color: #000000;
+    color: #ffffff;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    height: 100vh;
+    width: 100vw;
+    font-family: 'Helvetica Neue', sans-serif;
+    overflow: hidden;
+    padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
+    box-sizing: border-box;
+  }
+
+  .clock-container {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: space-around;
+    width: 100%;
+    height: 98%;
+  }
+
+  .digital-clock-wrapper {
+    position: relative;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    width: 85%;
+    max-width: 480px;
+    padding: 5% 2%;
+  }
+  .digital-clock {
+    font-size: min(24vw, 20vh);
+    font-weight: 700;
+    letter-spacing: -1px;
+    line-height: 1;
+    z-index: 1;
+  }
+  
+  .dashed-border {
+    position: absolute;
+    top: 0; left: 0; right: 0; bottom: 0;
+    border: 0.8vmin dashed rgba(255, 255, 255, 0.2);
+    border-radius: 25px;
+    pointer-events: none;
+    z-index: 0;
+    animation: soft-pulse 5s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+  }
+
+  @keyframes soft-pulse {
+    0%, 100% { opacity: 0.2; box-shadow: 0 0 15px rgba(255, 255, 255, 0.1); border-color: rgba(255, 255, 255, 0.2); }
+    50% { opacity: 1; border-color: rgba(255, 255, 255, 1); box-shadow: 0 0 30px rgba(255, 255, 255, 0.8), 0 0 70px rgba(255, 255, 255, 0.4); }
+  }
+
+  /* ニュースエリア調整：3行でも見切れないように高さを確保 */
+  .news-area {
+    width: 90%;
+    min-height: 4.5em; 
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    text-align: center;
+    color: #00ff41;
+    font-weight: bold;
+    font-size: clamp(0.9rem, 3.5vw, 1.2rem); /* 少し小さくして見切れを防止 */
+    line-height: 1.5;
+    overflow: hidden;
+  }
+  .news-line { display: inline-block; border-right: 2px solid transparent; }
+  .typing-cursor { border-right: 2px solid #00ff41; animation: blink 0.7s step-end infinite; }
+  @keyframes blink { 50% { border-color: transparent; } }
+
+  .analog-clock {
+    width: min(80vw, 42vh);
+    height: min(80vw, 42vh);
+    position: relative;
+  }
+  .analog-clock svg { width: 100%; height: 100%; }
+  .number { font-size: 16px; font-weight: 600; fill: #ffffff; text-anchor: middle; dominant-baseline: central; }
+  .date-text { font-size: 11px; font-weight: 500; fill: #ffffff; text-anchor: middle; }
+  .tick { stroke: #444; stroke-width: 2.5; }
+  .tick.thick { stroke: #fff; stroke-width: 3.5; }
+
+  @media (orientation: landscape) {
+    .clock-container { flex-direction: row; justify-content: center; gap: 8vw; align-items: center; padding-top: 15vh; position: relative; }
+    .digital-clock-wrapper { width: 40vw; max-width: 400px; }
+    .analog-clock { width: min(35vw, 45vh); height: min(35vw, 45vh); }
+    .news-area { position: absolute; top: 4vh; left: 5%; width: 90vw; min-height: 5em; }
+    .news-line { font-size: clamp(1.1rem, 3vw, 1.5rem); }
+  }
+</style>
+</head>
+<body>
+
+<div class="clock-container">
+  <div class="digital-clock-wrapper">
+    <div class="dashed-border"></div>
+    <div class="digital-clock" id="digital">00:00</div>
+  </div>
+
+  <div class="news-area">
+    <div id="news-line" class="news-line"></div>
+  </div>
+
+  <div class="analog-clock">
+    <svg viewBox="0 0 200 200">
+      <text id="date-display" x="100" y="75" class="date-text"></text>
+      <g id="ticks"></g>
+      <g id="numbers"></g>
+      <line id="hour" x1="100" y1="100" x2="100" y2="60" stroke="#ffffff" stroke-width="6" stroke-linecap="round" />
+      <line id="minute" x1="100" y1="100" x2="100" y2="35" stroke="#ffffff" stroke-width="4.5" stroke-linecap="round" />
+      <line id="second" x1="100" y1="115" x2="100" y2="25" stroke="#00ff41" stroke-width="1.8" />
+      <circle cx="100" cy="100" r="3.5" fill="#000000" stroke="#00ff41" stroke-width="2.5" />
+    </svg>
+  </div>
+</div>
+
+<script>
+  let newsItems = [];
+  let currentIndex = 0;
+
+  async function fetchNews() {
+    try {
+      // 順序指定：1.鹿児島 2.政治・国際（全国世界）
+      const queries = [
+        '鹿児島',
+        '政治 国際情勢',
+        'world politics'
+      ];
+      
+      let allNews = [];
+      for(let q of queries) {
+        const url = `https://news.google.com/rss/search?q=${encodeURIComponent(q)}&hl=ja&gl=JP&ceid=JP:ja`;
+        const response = await fetch(`https://api.rss2json.com/v1/api.json?rss_url=${encodeURIComponent(url)}`);
+        const data = await response.json();
+        if (data.items) {
+          allNews = allNews.concat(data.items.slice(0, 10).map(item => item.title.split(' - ')[0]));
+        }
+      }
+      newsItems = [...new Set(allNews)]; 
+      if(currentIndex === 0) startTypingLoop();
+    } catch (e) { document.getElementById('news-line').textContent = "ニュースを読み込み中..."; }
+  }
+
+  async function typeWriter(text) {
+    const el = document.getElementById('news-line');
+    el.textContent = "";
+    el.classList.add('typing-cursor');
+    for (let i = 0; i < text.length; i++) {
+      el.textContent += text.charAt(i);
+      await new Promise(r => setTimeout(r, 50));
+    }
+    el.classList.remove('typing-cursor');
+    await new Promise(r => setTimeout(r, 7000));
+  }
+
+  async function startTypingLoop() {
+    while (true) {
+      if (newsItems.length > 0) {
+        await typeWriter(newsItems[currentIndex % newsItems.length]);
+        document.getElementById('news-line').textContent = "";
+        currentIndex++;
+      } else { await new Promise(r => setTimeout(r, 2000)); }
+    }
+  }
+
+  // 時計の盤面生成
+  const ticksGroup = document.getElementById('ticks');
+  const numbersGroup = document.getElementById('numbers');
+  for (let i = 0; i < 60; i++) {
+    const angle = (i * 6) - 90;
+    const rad = angle * (Math.PI / 180);
+    const isHour = i % 5 === 0;
+    const x1 = 100 + 96 * Math.cos(rad); const y1 = 100 + 96 * Math.sin(rad);
+    const x2 = 100 + (isHour ? 84 : 91) * Math.cos(rad); const y2 = 100 + (isHour ? 84 : 91) * Math.sin(rad);
+    const line = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+    line.setAttribute('x1', x1); line.setAttribute('y1', y1);
+    line.setAttribute('x2', x2); line.setAttribute('y2', y2);
+    line.setAttribute('class', isHour ? 'tick thick' : 'tick');
+    ticksGroup.appendChild(line);
+    if (isHour) {
+      const nx = 100 + 68 * Math.cos(rad); const ny = 100 + 68 * Math.sin(rad);
+      const text = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+      text.setAttribute('x', nx); text.setAttribute('y', ny);
+      text.setAttribute('class', 'number');
+      text.textContent = i === 0 ? 12 : i / 5;
+      numbersGroup.appendChild(text);
+    }
+  }
+
+  function updateClock() {
+    const now = new Date();
+    // デジタル時計
+    document.getElementById('digital').textContent = 
+      `${now.getHours().toString().padStart(2, '0')}:${now.getMinutes().toString().padStart(2, '0')}`;
+
+    // アナログ時計の日付
+    const days = ['日', '月', '火', '水', '木', '金', '土'];
+    const dateStr = `${now.getFullYear()}/${(now.getMonth()+1).toString().padStart(2, '0')}/${now.getDate().toString().padStart(2, '0')} (${days[now.getDay()]})`;
+    document.getElementById('date-display').textContent = dateStr;
+
+    // 針の動き
+    const sDeg = (now.getSeconds() + now.getMilliseconds() / 1000) * 6;
+    const mDeg = (now.getMinutes() + now.getSeconds() / 60) * 6;
+    const hDeg = ((now.getHours() % 12) + now.getMinutes() / 60) * 30;
+    document.getElementById('second').setAttribute('transform', `rotate(${sDeg} 100 100)`);
+    document.getElementById('minute').setAttribute('transform', `rotate(${mDeg} 100 100)`);
+    document.getElementById('hour').setAttribute('transform', `rotate(${hDeg} 100 100)`);
+  }
+
+  setInterval(updateClock, 50);
+  updateClock();
+  fetchNews();
+  setInterval(fetchNews, 600000);
+</script>
+</body>
+</html>
